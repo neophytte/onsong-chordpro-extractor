@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
-my $DIAG = 0;
-my $count = my $SrcDircount = my $countPDF = my $countTXT = my $countSGB = my $countREG = my $countFIX = my $FixedEntities = 0;
+my $DIAG = 1;
+my $count = my $SrcDircount = my $countPDF = my $countTXT = my $countSGB = my $countCRD = my $countCHO = my $countCHOPRO = my $countCHORD = my $countPRO = my $countREG = my $countFIX = my $FixedEntities = 0;
 my $LastLine = "# This song was fixed #";
 my ($day, $month, $year)=(localtime)[3,4,5];
 my $fixed = sprintf("# Fixed on %04d-%02d-%02d #",$year+1900,($month)+1,$day);
@@ -9,13 +9,13 @@ my $FileNameCount = 1;
 
 my $RenameAll = 0; # Set this to rename all files 
 
-my $OnSongFix = 0; # Adds key as first [], adds default tempo, adds default time measure, add default duration 
+my $OnSongFix = 1; # Adds key as first [], adds default tempo, adds default time measure, add default duration 
 my $TitleLine = 0;
 ## ^^ this bit is broken, don't use ... 
-my $DefaultTempo = "{tempo: 120}";
+my $DefaultTempo = "{tempo:120}";
 my $DefaultKey = "{key:C}";
-my $DefaultTime = "{time: 4/4}";
-my $DefaultDuration = "{duration: 3:30}";
+my $DefaultTime = "{time:4/4}";
+my $DefaultDuration = "{duration:3:30}";
 
 my $RemoveTheFromStart = 1;
 my $RemoveThe = 1;
@@ -25,14 +25,15 @@ my $RemoveA = 0;
 my $ArtistFirst = 1;
 
 my $IncludeYear = 1;
-my $IncludeKey = 1;
+my $IncludeKey = 0;
 my $IncludeNotes = 1;
 
 my $SwapEntities = 1;
 
+
 my $SrcExt = "crd";
 my $OutExt = "crd";
-my $SrcDir = '';
+my $SrcDir = '/Users/neophytte/Desktop/Onsong_DB_dump/';
 
 # Win32
 # [HKEY_CURRENT_USER\SOFTWARE\Ten by Ten\Songsheet Generator]
@@ -46,8 +47,8 @@ my $OS = $^O;
 if (($DIAG) && ($OS eq "MSWin32")) { print "Windows"; }
 if (($DIAG) && ($OS eq "Darwin")) { print "Mac OSX"; }
 # Dir based on OS:
-if ($OS eq "MSWin32") { $SrcDir = "C:\\Users\\[[USER]]\\iCloudDrive\\Songsheet Generator Songs"; }
-if ($OS eq "Darwin")  { $SrcDir = "/Library/Mobile Documents/com~apple~CloudDocs/Songsheet Generator Songs";}
+# if ($OS eq "MSWin32") { $SrcDir = "C:\\Users\\[[USER]]\\iCloudDrive\\Songsheet Generator Songs"; }
+# if ($OS eq "Darwin")  { $SrcDir = "/Library/Mobile Documents/com~apple~CloudDocs/Songsheet Generator Songs";}
 if ($SrcDir eq '') {
 	print "Sorry, I don't know your OS [".$OS."]... :(";
 	die;
@@ -59,13 +60,18 @@ while (my $file = readdir(DIR)) {
 	$SrcDircount++;
 	my $i = 0;
 	next if ($file =~ m/^\./); # skip any dot files
+	if ($file =~ m/crd$/i) { $countCRD++; }
+	if ($file =~ m/cho$/i) { $countCHO++; }
+	if ($file =~ m/chopro$/i) { $countCHOPRO++; }
+	if ($file =~ m/chord$/i) { $countCHORD++; }
+	if ($file =~ m/pro$/i) { $countPRO++; }
 	if ($file =~ m/pdf$/i) { $countPDF++; }
 	if ($file =~ m/txt$/i) { $countTXT++; }
 	if ($file =~ m/sgb$/i) { $countSGB++; }
 	if ($file =~ m/reg$/i) { $countREG++; }
 	if ($file =~ m/$SrcExt$/) { # select any [.crd] [matching file extension] files
 		$count++;
-		if ($DIAG) { print "[".$count."] Working on: ".$file."\n"; }
+		if ($DIAG) { print "\n[".$count."] Working on: '".$file."'\n"; }
 		open(FILE, "<$file") or die $!;
 		#print "Length: ".length( $file )."\n";
 		my $StartLength = 0;
@@ -75,19 +81,43 @@ while (my $file = readdir(DIR)) {
 			chomp;
 			$StartLength += length( $_ );
 			$i++; # Line index
-			if ($_ =~ m/^\{/) {
-				if ($_ =~ m/^\{artist:/i)                  { if ($RemoveTheFromStart) {RemoveThe($_);$_ =~ s/(:\ the\ |:the\ )/:/i;}; $Art .= DataClense($_); }
-				if ($_ =~ m/(^\{t:|^\{title:)/i)           { if ($RemoveTheFromStart) {RemoveThe($_);$_ =~ s/(:\ the\ |:the\ )/:/i;}; $Tit .= DataClense($_); $TitleLine = $i; }
+			if ($_ =~ m/^\{/) { 
+        $_ =~ s/\ \}/\}/; # remove spaces from ends
+        $_ =~ s/:\ /:/; # remove spaces after the colon
+			  if ($_ =~ m/(^\{c:\ \}|^\{comment:\ \}|^\{comment:\})/i)  { 
+          $_ = " "; # remove blanck comment lines
+          if ($DIAG) { print "+"; }
+        }
+				if ($_ =~ m/^\{artist:/i) {
+           if ($RemoveTheFromStart) {
+             RemoveThe($_);
+             $_ =~ s/(:\ the\ |:the\ )/:/i;
+            };
+            $Art .= DataClense($_); 
+          }
+				if ($_ =~ m/(^\{t:|^\{title:)/i) { 
+          if ($RemoveTheFromStart) {
+            RemoveThe($_);
+            $_ =~ s/(:\ the\ |:the\ )/:/i;
+          };
+          $Tit .= DataClense($_); $TitleLine = $i; 
+        }
 				if ($_ =~ m/(^\{st:|^\{subtitle:)/i)       {
+          $_ =~ s/(\w+)/\u\L$1/g;
 					if ($Art) { # If there is an Artist, this is a true subtitle
 						$Tit .= DataClense($_);
 					} else { # If there is no Artist, it's likely the Artist
-						if ($RemoveTheFromStart) {RemoveThe($_);$_ =~ s/(:\ the\ |:the\ )/:/i;}
+						if ($RemoveTheFromStart) {
+              RemoveThe($_);
+              $_ =~ s/(:\ the\ |:the\ )/:/i;
+            }
 						$Art .= DataClense($_);
 						$_ =~ s/(st:|subtitle:)/artist:/; # Fix it in-line too
 					}
 				}
 				if (($_ =~ m/^\{key:/i) && $IncludeKey)    { $Str .= DataClense($_); }
+				if ($_ =~ m/^\{key:/i)  { $_ = ""; } # Remove the key line
+				if ($_ =~ m/^\{comment:\}/i)  { $_ = ""; } # Remove blank comment line
 				if (($_ =~ m/^\{year:/i) && $IncludeYear)  { $Str .= DataClense($_); }
 # TODO: sort new varibles
 				if (($_ =~ m/^\{composer:/i) && $IncludeYear)  { $Str .= DataClense($_); }
@@ -117,7 +147,7 @@ while (my $file = readdir(DIR)) {
 			my $FixTime = 1;
 			my $FixDuration = 1;
 			my $MyKey = '';
-			my $KeyContinue = 1;
+			my $KeyContinue = 0;
 			# Check where the 'title' tag exists - this is my marker
 			# cycle through text - see whether the keys are already existing:
 			foreach my $Line (@Lines) { 
@@ -134,7 +164,7 @@ while (my $file = readdir(DIR)) {
 			}
 			# determine which are not available and insert as required
 			if ($FixTempo)   { splice @Lines, $TitleLine+1, 0, $DefaultTempo; } 
-			if ($FixKey)     { splice @Lines, $TitleLine+1, 0, $DefaultKey; }
+			#if ($FixKey)     { splice @Lines, $TitleLine+1, 0, $DefaultKey; }
 			if ($FixTime)    { splice @Lines, $TitleLine+1, 0, $DefaultTime; }
 			if ($FixDuration){ splice @Lines, $TitleLine+1, 0, $DefaultDuration; }
 		}
@@ -160,6 +190,10 @@ while (my $file = readdir(DIR)) {
 		if (substr($Art, -1) == "-") { substr($Art, -1) = ""; } # remove trailing hyphen
 		if (substr($Tit, -1) == "-") { substr($Tit, -1) = ""; } # remove trailing hyphen
 		my $NewName = '';
+    $Art =~ s/(\w+)/\u\L$1/g;
+    $Tit =~ s/(\w+)/\u\L$1/g;
+    $Str =~ s/(\w+)/\u\L$1/g;
+
 		if ($ArtistFirst) { # Put in Artist first format
 			if ($Art) { $NewName .= $Art; }
 			if ($Tit) { $NewName .= "-".$Tit; }
@@ -171,23 +205,23 @@ while (my $file = readdir(DIR)) {
 		}
 		if (length $NewName > 0) { # If it found some tags - proceed, allow for extension ...
 			my $tmp = $NewName.".".$OutExt;
-			if (($file ne $tmp)){
-				if (-f "$tmp") { # Check if filename exists
+			if ($file ne $tmp) {
+				$NewName .= ".".$OutExt; # Add extension
+				print "[Renaming] $file --> $NewName\n";
+			} else {
+				if ($DIAG) { print "\n[ERR] $file --> $NewName | exists\n"; }
+        if (-f "$tmp") { # Check if filename exists
 					$FileNameCount = 1;
 					while (-e $NewName.".".$FileNameCount.".".$OutExt) {
 						$FileNameCount++;
 					}
-					$NewName.=".".$FileNameCount; # Add a number if file exists eg file.1.EXT file.2.ext
+					$NewName.=".".$FileNameCount.".".$OutExt; # Add a number if file exists eg file.1.EXT file.2.ext
 				}
-				$NewName .= ".".$OutExt; # Add extension
-				print "[Renaming] $file --> $NewName\n";
-				$countFIX++;
-				rename $file, $NewName;
-			} else {
-				if ($DIAG) { print "[ERR] $file --> $NewName | exists\n"; }
 			}
+			$countFIX++;
+			rename $file, $NewName;
 		} else {
-			print "[ERR] no tags found ... $file\n";
+			print "\n[ERR] no tags found ... $file\n";
 		}
 	}
 }
@@ -197,11 +231,16 @@ PrettyPrint("Ext","Count");
 PrettyPrint();
 PrettyPrint("All",$SrcDircount);
 PrettyPrint("---","----");
-PrettyPrint($SrcExt." files",$count);
+#PrettyPrint($SrcExt." files",$count);
 if ($countPDF)      { PrettyPrint("PDF files",$countPDF); }
 if ($countTXT)      { PrettyPrint("txt files",$countTXT); }
 if ($countSGB)      { PrettyPrint("Songbooks",$countSGB); }
 if ($countREG)      { PrettyPrint("reg files",$countREG); }
+if ($countCRD)      { PrettyPrint("CRD files",$countCRD); }
+if ($countCHO)      { PrettyPrint("CHO files",$countCHO); }
+if ($countCHOPRO)      { PrettyPrint("CHOPRO files",$countCHOPRO); }
+if ($countCHORD)      { PrettyPrint("CHORD files",$countCHORD); }
+if ($countPRO)      { PrettyPrint("PRO files",$countPRO); }
 if ($countFIX || $FixedEntities) { PrettyPrint(); }
 if ($countFIX)      { PrettyPrint("Fixed",$countFIX); }
 if ($FixedEntities) { PrettyPrint("Entities",$FixedEntities); }
@@ -217,22 +256,25 @@ sub RemoveThe($x) {
 
 sub DataClense($x) {
 	my $x = shift;
+  $_ =~ s/\ \}/\}/; # remove spaces from ends
+  $_ =~ s/:\ /:/; # remove spaces after the colon
 	$x =~ s/\}\s+$//g; # Delete any spaces after the terminating brace
 	$x =~ s/(\\|\/)/-/g; # Swap slashes for hyphen
 	$x =~ s/(\&|\+)/and/g; # Swap symbol and for bareword and
 	$x =~ s/(\{.*:|\}|\(|\)|\[|\]|,|\'|\"|\%|\@|\!|\#|\^|\*|\<|\>|\:|\;|\?)//g; # Remove icky yucky stuff
-	if ($RemoveThe) { $x =~ s/(\ the\ |the\ )//gi; }
-	if ($RemoveAnd) { $x =~ s/(\ and|and\ )//gi; }
+	if ($RemoveThe) { $x =~ s/(\ the\ |the\ )/_/gi; }
+	if ($RemoveAnd) { $x =~ s/(\ and|and\ )/_/gi; }
 	if ($RemoveA)   { $x =~ s/^a\ //i; }
 	if ($RemoveA)   { $x =~ s/\ a\ /\ /gi; }
 	$x =~ s/^\ //g; # Fix leading space issue
-	$x =~ s/(\ |\.)/_/g; # Swap space and dots for underscore
+  $x =~ s/(\w+)/\u\L$1/g; # Swap to sentace case
+	$x =~ s/(\ |\.|\,)/_/g; # Swap space and dots for underscore
 	return $x."-";
 }
 
 sub Swap($x) {
   my $x = shift;
-	$x =~ s/^\{ns\}/\{new_song\}/;
+	$x =~ s/^\{ns\}/\{new_song\}/; 
 	$x =~ s/^\{t:/\{title:/;
 	$x =~ s/^\{st:/\{subtitle:/;
 	$x =~ s/^\{c:/\{comment:/;
