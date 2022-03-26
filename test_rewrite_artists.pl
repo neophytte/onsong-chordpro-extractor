@@ -11,9 +11,9 @@ my $dsn = "DBI:$driver:dbname=$database";
 my $dbh = DBI->connect($dsn, $userid, $password, { RaiseError => 1 })
    or die $DBI::errstr;
 
-function BylineAlpha($){
+sub BylineAlpha($) {
   my $x = shift;
-  my $output uc(substr $x, 0,1); # get the sort key
+  my $output = uc(substr $x, 0,1); # get the sort key
   if ($output !~ /[A-Z]/) {
     $output = "#"; # OnSong misses 'null's - I've included them
   }
