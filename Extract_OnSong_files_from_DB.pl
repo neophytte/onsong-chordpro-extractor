@@ -6,18 +6,37 @@ use Cwd qw(cwd getcwd);
 my @currDir = split('/',cwd);
 # print $currDir[-1];
 # print getcwd;
+
+my $CoreDirectory;
+my $database;
+
+if (@ARGV) {
+  foreach my $argnum (0 .. $#ARGV) {
+    print "ARGV[$argnum]: $ARGV[$argnum]\n";
+  }
+  # needs to contain no spaces
+  $CoreDirectory = $ARGV[0]."-database_dump/";
+  $database = $ARGV[0]."/OnSong.sqlite3";
+} else {
+  print "No ARGV\n";
+  $CoreDirectory = "./$currDir[-1]-database_dump/";
+  $database = "OnSong.sqlite3";
+}
+print "Using CoreDirectory: $CoreDirectory\n";
+
 use Archive::Zip;
 my $zip = Archive::Zip->new();
 
 # ------ configuration ---- #
-my $database = "OnSong.sqlite3";
 my $userid = "";
 my $password = "";
-my $CoreDirectory = "./$currDir[-1]-database_dump/";
 my $OutDirectory = $CoreDirectory."updated/";
-my $DelDirectory = $CoreDirectory."marked_as_deleted/";
+my $DelDirectory = $CoreDirectory."deleted-files/";
+my $NonDelDirectory = $CoreDirectory."non-modified-files/";
 my $NoFilePath = $CoreDirectory."no-file-path/";
+my $NoFilePathDel = $NoFilePath."deleted/";
 my $ReportPath = $CoreDirectory."html-reports/";
+my $DelCmd = $CoreDirectory."delete_files.sh";
 # Logging
 my $Log = $CoreDirectory."_logfile.txt";
 my $Fav = $ReportPath."favourite.html";
@@ -32,7 +51,7 @@ my $Sets = $ReportPath."sets.html";
 my $Medi = $ReportPath."songs_from_images.html";
 
 # my $Dels = $ReportPath."deleted_songs.html";
-# my $Actv = $ReportPath."active_songs.html";
+my $Actv = $ReportPath."active_songs_by_title.html";
 # my $Unkn = $ReportPath."songs_with_unknown_status.html";
 
 # ------ don't modify beneath this line -------- #
@@ -45,6 +64,7 @@ my $CountDel;
 my $CountNondel;
 my $AllFiles;
 my $NotMatchingFilesizeDeleted;
+my $UnknownCounter = 0;
 
 #-----------------------------------------------------------
 # format_seconds($seconds)
@@ -55,13 +75,15 @@ my $NotMatchingFilesizeDeleted;
 sub FormatSeconds($) {
     my $tsecs = shift;
     use integer;
-    my $secs  = $tsecs % 60;
+    my $secs  = $tsecs % 60; 
     my $tmins = $tsecs / 60;
-    my $mins  = $tmins % 60;
+    my $mins  = $tmins % 60; 
     my $thrs  = $tmins / 60;
     my $hrs   = $thrs  % 24;
     my $days  = $thrs  / 24;
     my $age = "";
+    if (($secs < 10) && $mins) { $secs = "0".$secs; } # add leading zero
+    if (($mins < 10) && $hrs) { $mins = "0".$mins; } # add leading zero
     $age .= $days . "d " if $days || $age;
     $age .= $hrs  . "h " if $hrs  || $age;
     $age .= $mins . "m " if $mins || $age;
@@ -99,6 +121,23 @@ sub FormatDate($) {
     return;
   }
 }
+
+sub returnFilename($$) { # expect filename, filepath
+  my $filename;
+  my $x = shift;
+  my $y = shift;
+  if ($x) {
+    $filename = $x;
+  } else {
+    $filename = $y;
+  }
+  if (!$filename) { 
+    $filename = "unknown$UnknownCounter";
+    $UnknownCounter++; 
+  }
+  return $filename;
+}
+
 
 sub returnIcon($) {
   my $x = shift;
@@ -154,6 +193,7 @@ body { font: 62.5%/1.5  "Lucida Grande", "Lucida Sans", Tahoma, Verdana, sans-se
 .data tr:hover { background-color: #ddd; }
 .data th { padding-top: 12px; padding-bottom: 12px; text-align: left; background-color: #0000aa; color: white; }
 h1 span { border: 1px solid #ddd; padding: 8px; margin-left: 10px; font-size: 0.5em; float: right; }
+span.right { float: right; }
 span.anchors { display:inline-block; margin 10px auto; width: 20px; font-size: 2em; }
 .icon_arrow { float: right; height: 16px; width: 16px; margin: 0 auto; background-repeat: no-repeat; background-size: 16px 16px; padding: 0 10px;
   background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAArElEQVQ4jaWSMQvCMBCFv4g4Vafb/I0dRIqLVNRNRAr5hc7tIoLgoHGwkVRCU64PAgeX993LEUjIie3tT1IAYOHEbscAAI5ObBlrGCd2lkoA1G19ME2++09wA549pw7ul07sXvOEUB2IBtCBTJUAD3lpE3jNxwAqoNACKmBlmly1xJ8ZvktcJgwZcG3rC7D2ZgCTGufEZsAdOANFaIZh/+ANnGLmoYAHsImZAT6l+TOi5O4ddwAAAABJRU5ErkJggg==);}
@@ -182,10 +222,30 @@ button.toggler { width: 70px; }
 #header { width: 100%; border: 4px solid #000; background: #00f; }
 #header p { font-size: 4em; text-align: center; color: white; }
 .dateBox { font-size: 0.6em; }
-.hidden-class { display: none; }
-.show-class { display: inline; }
+.sidebar { height: 100%; width: 0; position: fixed; z-index: 1; top: 0; left: 0; background-color: #111; overflow-x: hidden; transition: 1.5s; padding-top: 30px; }
+.sidebar a { padding: 8px 8px 8px 3px; text-decoration: none; font-size: 1.2em; color: #818181; display: block; transition: 1.5s; }
+.sidebar a:hover { color: #f1f1f1; }
+.sidebar .closebtn { position: absolute; top: 0; width: 100%; }
+.openbtn { cursor: pointer; background-color: #111; color: white; padding: 10px 15px; border: none; }
+.openbtn:hover { background-color: #444; }
+#main { transition: margin-left 1.5s; padding: 16px; }
 </style>
 <script>
+var isSidebarOpen = false;
+
+function sideNavClicked(){
+	isSidebarOpen ? closeNav() : openNav();
+}
+function openNav() {
+	isSidebarOpen=true;
+  document.getElementById("mySidebar").style.width = "100px";
+  document.getElementById("main").style.marginLeft = "100px";
+}
+function closeNav() {
+	isSidebarOpen=false;
+  document.getElementById("mySidebar").style.width = "0";
+  document.getElementById("main").style.marginLeft= "0";
+}
 function toggle(div) {
   var x = document.getElementById(div);
   var y = document.getElementById('b_' + div);
@@ -218,7 +278,9 @@ if (! -d $CoreDirectory) { mkdir $CoreDirectory or die $!; }
 open(LOG, ">$Log") or die $!;
 if (! -d $OutDirectory) { mkdir $OutDirectory or die $!; print LOG "made $OutDirectory\n"; }
 if (! -d $DelDirectory) { mkdir $DelDirectory or die $!; print LOG "made $DelDirectory\n"; }
+if (! -d $NonDelDirectory) { mkdir $NonDelDirectory or die $!; print LOG "made $NonDelDirectory\n"; }
 if (! -d $NoFilePath) { mkdir $NoFilePath or die $!; print LOG "made $NoFilePath\n"; }
+if (! -d $NoFilePathDel) { mkdir $NoFilePathDel or die $!; print LOG "made $NoFilePathDel\n"; }
 if (! -d $ReportPath) { mkdir $ReportPath or die $!; print LOG "made $ReportPath\n"; }
 
 my $driver = "SQLite";
@@ -257,11 +319,7 @@ while(my @row = $content->fetchrow_array()) {
   }
 
   # fix filename or filepath
-  if ($row[9]) {
-    $filename = $row[9];
-  } else {
-    $filename = $row[0];
-  }
+  $filename = returnFilename($row[9],$row[0]);
 
   # Check if file already exists
   if (-e $filename) { # filename
@@ -271,6 +329,7 @@ while(my @row = $content->fetchrow_array()) {
       $MatchFilesize++;
       #print LOG "MATCH [$MatchFilesize] File '$filename' matches file size\n";
       $AllFiles++;
+      system("cp -fR \"$filename\" \"$NonDelDirectory$filename\"");
     } else {
       if ($filename =~ /crd$/) {
         if ($Deleted) {
@@ -316,13 +375,23 @@ while(my @row = $content->fetchrow_array()) {
       } else {
         $PDFcount++;
         print LOG "PDF   [$PDFcount] File '$filename' is a non-crd file\n";
+        system("cp -fR \"$filename\" \"$NonDelDirectory$filename\"");
       }
     }
   } else { # if we get here, we couldn't get a filename from the DB
     if ($Deleted) {
-#      print "file $filename does not exist and deleted\n";
-      $filename = SwapOutSpaces($row[10]."-".$row[11]).".crd";
+      $folder = $NoFilePathDel;
+#      print "file $filename does not exist and deleted from database\n";
+      $filename = SwapOutSpaces($row[10]."-".$row[11])."-DEL.crd";
       print LOG "DEL    [File '$filename' does not exist and is marked deleted\n";
+      open(FH, '>', $folder.$filename) or die $!;
+      print FH $row[1];
+      print FH "\n\n";
+      print FH "##########################################################################\n";
+      print FH "# This file didn't exist and was marked as deleted!!\n";
+      print FH "# Size [".length($row[1])."] in the database and did not exist as a file\n";
+      print FH "##########################################################################\n";
+      close(FH); 
     } else {
       $folder = $NoFilePath;
       # print "file $filename does not exist not deleted\n";
@@ -376,12 +445,7 @@ while(my @row = $L1->fetchrow_array()) {
     print FAV "<h1><button class=\"toggler\" id=\"b_L$row[0]\" onclick=\"toggle('L$row[0]')\">Show</button> Level $row[0] <div class=$icon>&nbsp;</div></h1>\n<table class=data id=\"L$row[0]\" style=\"display:none;\">";
     print FAV "<tr><th>Song</th><th>Artist</th></tr>\n";
   }
-  if ($row[5]) {
-    $filename = $row[5];
-  } else {
-    $filename = $row[4];
-  }
-  if (!$filename) { $filename = "unknown"; }
+  $filename = returnFilename($row[5],$row[4]);
   # <td>$row[1]</td>
   print FAV "<tr><td title=\"ID: $row[1]\"><div class=$icon style=\"float:left;\">&nbsp;</div>$row[2]</td><td title=\"File: $filename\">$row[3]</td></tr>"; #add dates
   $current = $row[0];
@@ -463,34 +527,49 @@ print CRD &HTMLFooter("Chords");
 
 # Display all songs by title to one HTML file:
 open(ALL, ">$Allt") or die $!;
+open(ALLA, ">$Actv") or die $!;
 print ALL &HTMLHeader("All songs by title");
+print ALLA &HTMLHeader("Active songs by title");
 print ALL "<button class=\"hideButton\">Toggle deleted</button>";
 my $A1 = $dbh->prepare( qq(select ID, title, byline, content, deleted, filename, filepath, alpha, bylineAlpha, lastImportedOn, syncTimestamp, created, modified, lastPlayedOn, viewed, duration, favorite from Song order by alpha, title;) );
 my $rv8 = $A1->execute() or die $DBI::errstr;
 $current = " ";
 my $localCount;
+my $activeCount;
 while(my @row = $A1->fetchrow_array()) {
   $localCount++;
   my $filename;
   if ($current ne $row[7]) {
     if ($current ne " ") {
       print ALL "</table>\n";
+      print ALLA "</table>\n";
     }
     print ALL "<h1><button class=\"toggler\" id=\"b_A$row[7]\" onclick=\"toggle('A$row[7]')\">Show</button> Song title: $row[7]</h1>\n<table class=data id=\"A$row[7]\" style=\"display:none;\">";
     print ALL "<tr><th>Song title</th><th>Artist</th><th>Dates</th><th>Active</th></tr>\n";
+    print ALLA "<h1><button class=\"toggler\" id=\"b_A$row[7]\" onclick=\"toggle('A$row[7]')\">Show</button> Song title: $row[7]</h1>\n<table class=data id=\"A$row[7]\" style=\"display:none;\">";
+    print ALLA "<tr><th>Song title</th><th>Artist</th><th>Dates</th></tr>\n";
     $current = $row[7];
   }
-  if ($row[5]) {
-    $filename = $row[5];
-  } else {
-    $filename = $row[6];
-  }
-  if (!$filename) { $filename = "unknown"; }
+  $filename = returnFilename($row[5],$row[6]);
   # <td>$row[1]</td>
-    if ($row[4]) { print ALL "<tr class=\"deleted\">"; } else { print ALL "<tr class=\"active\">"; }
-  print ALL "<td title=\"ID: $row[0]\"><span class=".returnIcon($row[16])." style=\"float:none\">&nbsp;</span>".$row[1];
-  if ($row[15]) { print ALL " (".FormatSeconds($row[15]).")"; }
+  if ($row[4]) { 
+    print ALL "<tr class=\"deleted\">"; 
+  } else { 
+    print ALL "<tr class=\"active\">";
+    print ALLA "<tr class=\"active\">"; 
+    $activeCount++;
+  }
+  print ALL "<td title=\"Database ID: $row[0]\"><span class=".returnIcon($row[16])." style=\"float:none\">&nbsp;</span>".$row[1];
+  if ($row[15]) { print ALL "<span class=right>[Time: ".FormatSeconds($row[15])."]</span>"; }
   print ALL "</td><td title=\"File: $filename\">$row[2]</td><td class=\"dateBox\">";
+  if (!($row[4])){
+    print ALLA "<td title=\"Database ID: $row[0]\"><span class=".returnIcon($row[16])." style=\"float:none\">&nbsp;</span>".$row[1];
+  }
+  if ($row[15]) { print ALL "<span class=right>[Time: ".FormatSeconds($row[15])."]</span>"; }
+  if ($row[15] && !($row[4])) { print ALLA "<span class=right>[Time: ".FormatSeconds($row[15])."]</span>"; }
+  if (!($row[4])){
+    print ALLA "</td><td title=\"File: $filename\">$row[2]</td><td class=\"dateBox\">";
+  }
   # Dates
   if ($row[11]) { print ALL "Created: ".FormatDateTime($row[11])."<br />"}
   if ($row[12]) { print ALL "Modified: ".FormatDateTime($row[12])."<br />"}
@@ -499,6 +578,16 @@ while(my @row = $A1->fetchrow_array()) {
   if ($row[13]) { print ALL "Last played: ".FormatDateTime($row[13])."<br />"}
   if ($row[14]) { print ALL "Last viewed: ".FormatDateTime($row[14])."<br />"}
   print ALL "</td>";
+  # Dates for all active file
+  if (!($row[4])){
+    if ($row[11]) { print ALLA "Created: ".FormatDateTime($row[11])."<br />"}
+    if ($row[12]) { print ALLA "Modified: ".FormatDateTime($row[12])."<br />"}
+    if ($row[9]) { print ALLA "Last imported: ".FormatDateTime($row[9])."<br />"}
+    if ($row[10]) { print ALLA "Last synced: ".FormatDateTime($row[10])."<br />"}
+    if ($row[13]) { print ALLA "Last played: ".FormatDateTime($row[13])."<br />"}
+    if ($row[14]) { print ALLA "Last viewed: ".FormatDateTime($row[14])."<br />"}
+    print ALLA "</td>";
+  }
   # Active
   if ($row[4]) {
     print ALL "<td><div class=\"cross\" title=\"Deleted song\">&nbsp;</div></td>";
@@ -506,18 +595,23 @@ while(my @row = $A1->fetchrow_array()) {
     print ALL "<td><div class=\"tick\" title=\"Active\">&nbsp;</div></td>";
   }
   print ALL "</tr>";
+  if (!($row[4])){
+    print ALLA "</tr>";
+  }
 }
-print ALL &HTMLFooter("All songs by title (Counted: $localCount)");
+print ALL &HTMLFooter("All songs by title (Active: $activeCount, Total: $localCount)");
+print ALLA &HTMLFooter("All active songs by title (Active: $activeCount, Total: $localCount)");
 
 # Display all songs by artist to one HTML file:
 open(ALA, ">$Alla") or die $!;
 print ALA &HTMLHeader("All songs by artist");
-my $A2 = $dbh->prepare( qq(select ID, title, byline, deleted, created, modified, lastPlayedOn, viewed, favorite from Song;) );
+my $A2 = $dbh->prepare( qq(select ID, title, byline, deleted, created, modified, lastPlayedOn, viewed, favorite, filename, filepath from Song;) );
 my $rv9 = $A2->execute() or die $DBI::errstr;
 $current = "  ";
 my $display;
 my $artistCount = 0;
 $localCount = 0;
+
 my @data;
 my $bylineAlpha;
 while(my @row = $A2->fetchrow_array()) {
@@ -535,6 +629,7 @@ while(my @row = $A2->fetchrow_array()) {
         'title' => $row[1],
         'bylineAlpha' => $bylineAlpha,
         'byline' => $_,
+        'filename' => returnFilename($row[10],$row[11]),
         'deleted' => $row[3],
         'created' => $row[4],
         'modified' => $row[5],
@@ -553,6 +648,7 @@ while(my @row = $A2->fetchrow_array()) {
       'title' => $row[1],
       'bylineAlpha' => $bylineAlpha,
       'byline' => $row[2],
+      'filename' => returnFilename($row[10],$row[11]),
       'deleted' => $row[3],
       'created' => $row[4],
       'modified' => $row[5],
@@ -572,15 +668,19 @@ my @sorted_data = sort {
 my $current_anchor;
 my $listOfLinks;
 
+print ALA "<div id=\"mySidebar\" class=\"sidebar\"><button class=\"closebtn\" onclick=\"closeNav()\">Close</button><button class=\"hideButton\">Toggle deleted</button><ul>\n"; # make sidebar
 foreach (@sorted_data) {
   if ($current_anchor ne $_->{'bylineAlpha'}) {
     # next if $_->{'bylineAlpha'} == "#";
-    $listOfLinks .= "<span class=\"anchors\"><a href=\"#".$_->{'bylineAlpha'}."\">".$_->{'bylineAlpha'}."</a></span>";
+    #$listOfLinks .= "<span class=\"anchors\"><a href=\"#".$_->{'bylineAlpha'}."\">".$_->{'bylineAlpha'}."</a></span>";
+    print ALA "<li><a href=\"#".$_->{'bylineAlpha'}."\">".$_->{'bylineAlpha'}."</a></li>\n";
     $current_anchor = $_->{'bylineAlpha'};
   }
 }
+print ALA "<p>&nbsp;</p></div><div id=\"main\">\n";
 
-$listOfLinks .= "<button class=\"hideButton\">Toggle deleted</button>";
+#$listOfLinks .= "<button class=\"hideButton\">Toggle deleted</button>";
+$listOfLinks .= "<button class=\"openbtn\" onclick=\"sideNavClicked()\">Menu</button>\n";
 
 foreach (@sorted_data) {
   #print "-->".$_->{'bylineAlpha'}." - ".$_->{'byline'}." - ".$_->{'title'}."\n";
@@ -606,7 +706,7 @@ foreach (@sorted_data) {
   } else {
     print ALA "<tr class=\"active\">";
   }
-  print ALA "<td title=\"ID: $_->{'ID'}\"><span class=".returnIcon($_->{'favourite'})." style=\"float:none\">&nbsp;</span>$_->{'title'}</td><td title=\"ID: $_->{'ID'}\">$_->{'byline'}</td><td class=\"dateBox\">";
+  print ALA "<td title=\"ID: $_->{'ID'}\"><span class=".returnIcon($_->{'favourite'})." style=\"float:none\">&nbsp;</span>$_->{'title'}</td><td title=\"File: $_->{'filename'}\">$_->{'byline'}</td><td class=\"dateBox\">";
   # Dates
   if ($_->{'created'}) { print ALA "Created: ".FormatDateTime($_->{'created'})."<br />"}
   if ($_->{'modified'}) { print ALA "Modified: ".FormatDateTime($_->{'modified'})."<br />"}
@@ -621,13 +721,15 @@ foreach (@sorted_data) {
   }
   print ALA "</tr>";
 }
+print ALA "</div>\n";
+
 print ALA &HTMLFooter("All songs by artist (Songs: $localCount / Artists: $artistCount)");
 
 # Display all Books to one HTML file:
 #TODO: add favourite icons
 open(BOOK, ">$Book") or die $!;
 print BOOK &HTMLHeader("All books");
-my $A3 = $dbh->prepare( qq(select A.ID, B.songID, C.title, C.byline, C.alpha from Collection A inner join CollectionSong B on A.ID = B.collectionID inner join Song C on B.songID = C.ID;) );
+my $A3 = $dbh->prepare( qq(select A.ID, B.songID, C.title, C.byline, C.alpha from Collection A inner join CollectionSong B on A.ID = B.collectionID inner join Song C on B.songID = C.ID order by A.ID;) );
 my $ra1 = $A3->execute() or die $DBI::errstr;
 $current = "  ";
 while(my @row = $A3->fetchrow_array()) {
@@ -679,7 +781,9 @@ print SETS &HTMLFooter("All sets");
 # Display all deleted songs to one HTML file:
 #TODO: add favourite icons
 open(DEL, ">$Alld") or die $!;
+open(DELT, ">$DelCmd") or die $!;
 print DEL &HTMLHeader("All deleted songs");
+print DELT "# Use this file in the directory to remove deleted files\n#\n";
 my $A6 = $dbh->prepare( qq(select ID, title, byline, content, deleted, filename, filepath, alpha, bylineAlpha, lastImportedOn, syncTimestamp, created, modified, lastPlayedOn, viewed from Song where deleted != '0' order by alpha, title;) );
 my $rd1 = $A6->execute() or die $DBI::errstr;
 $current = " ";
@@ -695,13 +799,8 @@ while(my @row = $A6->fetchrow_array()) {
     print DEL "<tr><th>Song title</th><th>Artist</th><th>File</th><th>Dates</th></tr>\n";
     $current = $row[7];
   }
-  if ($row[5]) {
-    $filename = $row[5];
-  } else {
-    $filename = $row[6];
-  }
-  if (!$filename) { $filename = "unknown"; }
-  # <td>$row[1]</td>
+  $filename = returnFilename($row[5],$row[6]);
+  print DELT "rm \"$filename\"\n";
   print DEL "<tr><td title=\"ID: $row[0]\">$row[1]</td><td title=\"ID: $row[0]\">$row[2]</td><td>$filename</td><td class=\"dateBox\">";
   # Dates
   if ($row[11]) { print DEL "Created: ".FormatDateTime($row[11])."<br />"}
@@ -714,7 +813,7 @@ while(my @row = $A6->fetchrow_array()) {
   print DEL "</tr>";
 }
 print DEL &HTMLFooter("All deleted songs (Counted: $localCount)");
-
+print DELT "\n # All deleted songs (Counted: $localCount)\n";
 
 
 
